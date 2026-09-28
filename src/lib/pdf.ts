@@ -1,5 +1,6 @@
 import { PDFDocument, StandardFonts, rgb, PDFFont, PDFPage } from "pdf-lib";
 import { Block, FormConfig, Submission } from "./types";
+import { getBlobBytes } from "./blob-store";
 
 const MARGIN = 50;
 const PAGE_WIDTH = 595.28; // A4
@@ -182,6 +183,18 @@ export async function generateSubmissionPdf(
                 if (!match) throw new Error("data url inválida");
                 isPng = match[1].includes("png");
                 bytes = new Uint8Array(Buffer.from(match[2], "base64"));
+              } else if (url.startsWith("/api/blob/")) {
+                const key = url
+                  .slice("/api/blob/".length)
+                  .split("/")
+                  .map((p) => decodeURIComponent(p))
+                  .join("/");
+                const result = await getBlobBytes(key);
+                if (!result) throw new Error("firma no encontrada");
+                bytes = result.bytes;
+                isPng =
+                  (result.contentType || "").includes("png") ||
+                  url.toLowerCase().includes(".png");
               } else {
                 const res = await fetch(url);
                 bytes = new Uint8Array(await res.arrayBuffer());

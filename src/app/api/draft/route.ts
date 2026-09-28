@@ -1,27 +1,28 @@
 import { NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "crypto";
-import { put, head } from "@vercel/blob";
+import { getStore } from "@netlify/blobs";
 
 export const dynamic = "force-dynamic";
+
+const draftStore = () => getStore("captacion-form");
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const token = typeof body.token === "string" && body.token ? body.token : randomUUID();
+    const token =
+      typeof body.token === "string" && body.token ? body.token : randomUUID();
     const payload = {
       token,
       updatedAt: new Date().toISOString(),
       data: body.data || {},
     };
-    await put(`drafts/${token}.json`, JSON.stringify(payload), {
-      access: "public",
-      contentType: "application/json",
-      addRandomSuffix: false,
-      allowOverwrite: true,
-    });
+    await draftStore().setJSON(`drafts/${token}.json`, payload);
     return NextResponse.json({ ok: true, token });
   } catch (err) {
-    return NextResponse.json({ error: "No se pudo guardar el borrador" }, { status: 500 });
+    return NextResponse.json(
+      { error: "No se pudo guardar el borrador" },
+      { status: 500 }
+    );
   }
 }
 
@@ -31,10 +32,10 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Falta token" }, { status: 400 });
   }
   try {
-    const info = await head(`drafts/${token}.json`).catch(() => null);
-    if (!info) return NextResponse.json({ error: "No encontrado" }, { status: 404 });
-    const res = await fetch(info.url, { cache: "no-store" });
-    const json = await res.json();
+    const json = await draftStore().get(`drafts/${token}.json`, {
+      type: "json",
+    });
+    if (!json) return NextResponse.json({ error: "No encontrado" }, { status: 404 });
     return NextResponse.json(json);
   } catch {
     return NextResponse.json({ error: "No encontrado" }, { status: 404 });

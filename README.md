@@ -7,8 +7,10 @@ diseño (logo, colores, tipografía), mensajes y notificaciones.
 ## Stack
 
 - Next.js 14 (App Router) + TypeScript
-- Vercel Blob (almacena la configuración del formulario, los envíos, las firmas y los archivos
-  adjuntos)
+- Desplegado en **Netlify** (`@netlify/plugin-nextjs`, ver `netlify.toml`)
+- Netlify Blobs (almacena la configuración del formulario, los envíos, las firmas y los archivos
+  adjuntos). En producción en Netlify no requiere variables de entorno: el contexto del blob
+  store lo inyecta Netlify automáticamente durante el build/deploy.
 - pdf-lib (genera el PDF del contrato a partir de la configuración y los datos enviados)
 - Sesión de administrador con cookie firmada (HMAC), sin dependencias externas de autenticación
 
@@ -16,11 +18,13 @@ diseño (logo, colores, tipografía), mensajes y notificaciones.
 
 | Variable | Obligatoria | Descripción |
 | --- | --- | --- |
-| `BLOB_READ_WRITE_TOKEN` | Sí | La crea Vercel automáticamente al vincular un Blob Store al proyecto. |
 | `ADMIN_PASSWORD` | Sí | Contraseña para entrar a `/admin`. |
 | `SESSION_SECRET` | Sí | Cadena aleatoria usada para firmar la cookie de sesión del admin. |
 | `RESEND_API_KEY` | No | Si se define, habilita el envío real de correos de notificación (vía Resend). |
 | `NOTIFY_FROM_EMAIL` | No | Remitente del correo de notificación (por defecto `onboarding@resend.dev`). |
+
+Configura `ADMIN_PASSWORD` y `SESSION_SECRET` en Netlify (Site configuration → Environment
+variables) antes del primer deploy en producción.
 
 ## Uso
 
@@ -37,18 +41,20 @@ diseño (logo, colores, tipografía), mensajes y notificaciones.
 
 ## Nota sobre privacidad de los documentos adjuntos
 
-Los archivos adjuntos (cédula, título de propiedad, firmas) se guardan en Vercel Blob con acceso
-`public` y nombre de archivo aleatorio: no aparecen en ningún listado público, pero cualquiera que
-obtenga el enlace exacto podría abrirlos. Dado que este formulario recoge documentos de identidad,
-si el cumplimiento normativo lo exige, conviene migrar a Blob con acceso `private` (requiere plan
-Pro/Enterprise de Vercel) o añadir una capa de URLs firmadas con expiración.
+Los archivos adjuntos (cédula, título de propiedad, firmas) se guardan en Netlify Blobs y se
+sirven a través de `/api/blob/[...key]`, con una clave aleatoria e impredecible: no aparecen en
+ningún listado público, pero cualquiera que obtenga el enlace exacto podría abrirlos. Dado que
+este formulario recoge documentos de identidad, si el cumplimiento normativo lo exige, conviene
+añadir autenticación a esa ruta (por ejemplo, exigir la sesión de administrador o un token con
+expiración) en vez de dejarla abierta por URL.
 
 ## Desarrollo local
 
 ```bash
 npm install
-npm run dev
+netlify dev
 ```
 
-Se necesita un Blob Store de Vercel vinculado (`vercel env pull` para traer las variables) o bien
-definir `BLOB_READ_WRITE_TOKEN`, `ADMIN_PASSWORD` y `SESSION_SECRET` manualmente en `.env.local`.
+`netlify dev` (CLI de Netlify) inyecta automáticamente el contexto de Netlify Blobs para
+desarrollo local. Define `ADMIN_PASSWORD` y `SESSION_SECRET` en un archivo `.env` o con
+`netlify env:set`.

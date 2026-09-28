@@ -1,19 +1,27 @@
-import { put, list, head, del } from "@vercel/blob";
+import { getStore } from "@netlify/blobs";
 import { DEFAULT_CONFIG } from "./default-config";
 import { FormConfig, Submission } from "./types";
 
-const CONFIG_PATH = "config/current.json";
+const STORE_NAME = "captacion-form";
+const CONFIG_KEY = "config/current.json";
+
+function store() {
+  return getStore(STORE_NAME);
+}
+
+function randomSuffix(): string {
+  return Math.random().toString(36).slice(2, 10);
+}
 
 export async function getConfig(): Promise<FormConfig> {
   try {
-    const info = await head(CONFIG_PATH).catch(() => null);
-    if (!info) {
+    const json = (await store().get(CONFIG_KEY, {
+      type: "json",
+    })) as FormConfig | null;
+    if (!json) {
       await saveConfig(DEFAULT_CONFIG);
       return DEFAULT_CONFIG;
     }
-    const res = await fetch(info.url, { cache: "no-store" });
-    if (!res.ok) return DEFAULT_CONFIG;
-    const json = (await res.json()) as FormConfig;
     return json;
   } catch {
     return DEFAULT_CONFIG;
@@ -21,55 +29,39 @@ export async function getConfig(): Promise<FormConfig> {
 }
 
 export async function saveConfig(config: FormConfig): Promise<void> {
-  const body = JSON.stringify(config, null, 2);
-  await put(CONFIG_PATH, body, {
-    access: "public",
-    contentType: "application/json",
-    addRandomSuffix: false,
-    allowOverwrite: true,
-  });
+  await store().setJSON(CONFIG_KEY, config);
 }
 
 export async function saveSubmission(submission: Submission): Promise<void> {
-  const path = `submissions/${submission.id}.json`;
-  await put(path, JSON.stringify(submission, null, 2), {
-    access: "public",
-    contentType: "application/json",
-    addRandomSuffix: false,
-    allowOverwrite: true,
-  });
+  await store().setJSON(`submissions/${submission.id}.json`, submission);
 }
 
 export async function listSubmissions(): Promise<Submission[]> {
+  const { blobs } = await store().list({ prefix: "submissions/" });
   const results: Submission[] = [];
-  let cursor: string | undefined = undefined;
-  do {
-    const page = await list({ prefix: "submissions/", cursor, limit: 100 });
-    for (const item of page.blobs) {
-      if (!item.pathname.endsWith(".json")) continue;
-      try {
-        const res = await fetch(item.url, { cache: "no-store" });
-        if (res.ok) {
-          const data = (await res.json()) as Submission;
-          results.push(data);
-        }
-      } catch {
-        // skip unreadable entries
-      }
+  for (const item of blobs) {
+    if (!item.key.endsWith(".json")) continue;
+    try {
+      const data = (await store().get(item.key, {
+        type: "json",
+      })) as Submission | null;
+      if (data) results.push(data);
+    } catch {
+      // skip unreadable entries
     }
-    cursor = page.cursor;
-  } while (cursor);
+  }
   results.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
   return results;
 }
 
 export async function getSubmission(id: string): Promise<Submission | null> {
-  const path = `submissions/${id}.json`;
-  const info = await head(path).catch(() => null);
-  if (!info) return null;
-  const res = await fetch(info.url, { cache: "no-store" });
-  if (!res.ok) return null;
-  return (await res.json()) as Submission;
+  try {
+    return (await store().get(`submissions/${id}.json`, {
+      type: "json",
+    })) as Submission | null;
+  } catch {
+    return null;
+  }
 }
 
 export async function uploadFile(
@@ -78,13 +70,14 @@ export async function uploadFile(
   file: File | Blob
 ): Promise<{ url: string; size: number }> {
   const safeName = filename.replace(/[^a-zA-Z0-9._-]/g, "_");
-  const path = `${pathPrefix}/${Date.now()}-${safeName}`;
-  const blob = await put(path, file, {
-    access: "public",
-    addRandomSuffix: true,
+  const key = `${pathPrefix}/${Date.now()}-${randomSuffix()}-${safeName}`;
+  const buffer = Buffer.from(await file.arrayBuffer());
+  const contentType =
+    "type" in file && file.type ? file.type : "application/octet-stream";
+  await store().set(key, new Blob([buffer]), {
+    metadata: { contentType, filename: safeName },
   });
-  const size = "size" in file ? (file as File).size : 0;
-  return { url: blob.url, size };
+  return { url: `/api/blob/${key}`, size: buffer.byteLength };
 }
 
 export async function uploadDataUrl(
@@ -96,15 +89,34 @@ export async function uploadDataUrl(
   if (!match) throw new Error("Formato de imagen inválido");
   const contentType = match[1];
   const buffer = Buffer.from(match[2], "base64");
-  const path = `${pathPrefix}/${filename}`;
-  const blob = await put(path, buffer, {
-    access: "public",
-    contentType,
-    addRandomSuffix: true,
-  });
-  return blob.url;
+  const key = `${pathPrefix}/${randomSuffix()}-${filename}`;
+  await store().set(key, new Blob([buffer]), { metadata: { contentType } });
+  return `/api/blob/${key}`;
 }
 
 export async function deleteSubmission(id: string): Promise<void> {
-  await del(`submissions/${id}.json`).catch(() => {});
+  await store()
+    .delete(`submissions/${id}.json`)
+    .catch(() => {});
+}
+
+// Reads the raw bytes of a file stored via uploadFile/uploadDataUrl, given
+// the storage key (everything after "/api/blob/" in the url they returned).
+// Used by pdf.ts to embed signatures without a round-trip HTTP fetch, and by
+// the /api/blob/[...key] route to serve files, signatures and the logo.
+export async function getBlobBytes(
+  key: string
+): Promise<{ bytes: Uint8Array; contentType?: string } | null> {
+  try {
+    const buf = await store().get(key, { type: "arrayBuffer" });
+    if (!buf) return null;
+    const meta = await store()
+      .getMetadata(key)
+      .catch(() => null);
+    const contentType =
+      (meta?.metadata?.contentType as string | undefined) || undefined;
+    return { bytes: new Uint8Array(buf), contentType };
+  } catch {
+    return null;
+  }
 }

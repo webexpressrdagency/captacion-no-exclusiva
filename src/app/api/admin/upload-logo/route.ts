@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isAuthenticated } from "@/lib/auth";
-import { put } from "@vercel/blob";
+import { uploadFile } from "@/lib/blob-store";
 
 export async function POST(req: NextRequest) {
   if (!(await isAuthenticated())) {
@@ -11,9 +11,6 @@ export async function POST(req: NextRequest) {
   if (!(file instanceof File)) {
     return NextResponse.json({ error: "Falta el archivo" }, { status: 400 });
   }
-  const blob = await put(`branding/logo-${Date.now()}-${file.name}`, file, {
-    access: "public",
-    addRandomSuffix: true,
-  });
-  return NextResponse.json({ url: blob.url });
+  const { url } = await uploadFile("branding", file.name, file);
+  return NextResponse.json({ url });
 }
