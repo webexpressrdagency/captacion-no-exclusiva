@@ -60,3 +60,4 @@ desarrollo local. Define `ADMIN_PASSWORD` y `SESSION_SECRET` en un archivo `.env
 `netlify env:set`.
 
 <!-- redeploy trigger 1790615175 -->
+<!-- redeploy 1790615764 -->
