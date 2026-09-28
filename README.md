@@ -58,3 +58,5 @@ netlify dev
 `netlify dev` (CLI de Netlify) inyecta automáticamente el contexto de Netlify Blobs para
 desarrollo local. Define `ADMIN_PASSWORD` y `SESSION_SECRET` en un archivo `.env` o con
 `netlify env:set`.
+
+<!-- redeploy trigger 1790615175 -->
